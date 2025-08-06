@@ -7,13 +7,20 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
+	sharedlogger "shared/logger"
 	redisclient "shared/redis"
 	"shared/utils"
 	"strings"
 
+	"shared/constants"
+	"shared/tracing"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
+	"go.uber.org/zap"
 )
 
 func startStreamWriter(ctx context.Context, w *bufio.Writer, streamName, groupName, consumerID string) {
@@ -43,29 +50,49 @@ func startStreamWriter(ctx context.Context, w *bufio.Writer, streamName, groupNa
 	}
 }
 
-func handleMessage(ctx context.Context, w *bufio.Writer, streamName, groupName string, msg redis.XMessage) error {
-	data := make(map[string]interface{})
-	for k, v := range msg.Values {
-		data[k] = v
-	}
+func handleMessage(baseCtx context.Context, w *bufio.Writer, streamName, groupName string, msg redis.XMessage) error {
+	traceData := msg.Values["trace_context"]
+	searchID := msg.Values["search_id"].(string)
+	ctx := tracing.ExtractTracingFromMap(baseCtx, traceData)
+
+	tracer := otel.Tracer(fmt.Sprintf("%s/handler", constants.ServiceMain))
+	ctx, span := tracer.Start(ctx, "handleMessage")
+	defer span.End()
+
+	data := make(map[string]any)
+	maps.Copy(data, msg.Values)
+
+	span.AddEvent(fmt.Sprintf("Processing message %s", searchID))
+	sharedlogger.WithTrace(ctx).Info("Processing message", zap.String("search_id", searchID))
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
+		sharedlogger.WithTrace(ctx).Warn("Failed to marshal data:", zap.Error(err))
+		span.RecordError(err)
 		return err
 	}
 
 	fmt.Fprintf(w, "data: %s\n\n", jsonData)
 	if err := w.Flush(); err != nil {
+		sharedlogger.WithTrace(ctx).Warn("Failed to flush writer:", zap.Error(err))
+		span.RecordError(err)
 		return err
 	}
 
-	// Acknowledge message
 	if err := redisclient.AcknowledgeMessage(ctx, streamName, groupName, msg.ID); err != nil {
-		log.Println("Ack error:", err)
+		sharedlogger.WithTrace(ctx).Warn("Ack error:", zap.Error(err))
+		span.RecordError(err)
+	}
+
+	status, ok := data["status"].(string)
+	if !ok {
+		sharedlogger.WithTrace(ctx).Warn("Failed to get status from message:", zap.Error(err))
+		span.RecordError(err)
+		return nil
 	}
 
 	// Auto-cleanup if completed
-	if status, ok := data["status"].(string); ok && strings.ToLower(status) == "completed" {
+	if strings.ToLower(status) == "completed" {
 		redisclient.DeleteStream(ctx, streamName)
 		return io.EOF // to break the loop and end the stream
 	}
@@ -88,14 +115,11 @@ func SSEHandler(c *fiber.Ctx) error {
 
 	streamName := utils.SearchResultStream(searchID)
 	groupName := "group"
-	// must be unique
 	consumerID := fmt.Sprintf("search-%s", searchID)
 	ctx := context.Background()
 
-	// Create consumer group (idempotent)
 	_ = redisclient.CreateStreamGroup(ctx, streamName, groupName, "0")
 
-	// Set headers for SSE
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")

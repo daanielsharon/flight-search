@@ -1,4 +1,4 @@
-package models
+package sharedmodels
 
 type SearchRequest struct {
 	From       string `json:"from"`

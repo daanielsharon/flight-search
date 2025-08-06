@@ -58,3 +58,24 @@ func Shutdown() {
 		log.Printf("failed to shutdown tracer provider: %v", err)
 	}
 }
+
+func InjectTracingToMap(ctx context.Context) map[string]string {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	return carrier
+}
+
+func ExtractTracingFromMap(ctx context.Context, carrierMap any) context.Context {
+	m, ok := carrierMap.(map[string]any)
+	if !ok {
+		return ctx
+	}
+	strMap := map[string]string{}
+	for k, v := range m {
+		if s, ok := v.(string); ok {
+			strMap[k] = s
+		}
+	}
+	carrier := propagation.MapCarrier(strMap)
+	return otel.GetTextMapPropagator().Extract(ctx, carrier)
+}

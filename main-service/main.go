@@ -9,15 +9,18 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"shared/constants"
+	sharedlogger "shared/logger"
 	redisclient "shared/redis"
 	"shared/tracing"
 )
 
 func main() {
 	tracing.MustInit(constants.ServiceMain)
-	defer tracing.Shutdown()
-
+	sharedlogger.Init()
 	redisclient.Init()
+	defer tracing.Shutdown()
+	defer sharedlogger.L().Sync()
+
 	app := fiber.New()
 	app.Use(otelfiber.Middleware())
 

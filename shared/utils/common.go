@@ -2,8 +2,8 @@ package utils
 
 import (
 	"encoding/json"
-	"fmt"
-	"shared/constants"
+	"math/rand"
+	"time"
 )
 
 func StructToMap(data any) map[string]any {
@@ -13,10 +13,23 @@ func StructToMap(data any) map[string]any {
 	return result
 }
 
-func SearchResultStream(searchID string) string {
-	return fmt.Sprintf("%s:%s", constants.FlightSearchCompleted, searchID)
+func MapToStruct[T any](data map[string]any) (T, error) {
+	var result T
+
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return result, err
+	}
+
+	err = json.Unmarshal(bytes, &result)
+	if err != nil {
+		return result, err
+	}
+
+	return result, nil
 }
 
-func SearchRequestedStream(searchID string) string {
-	return fmt.Sprintf("%s:%s", constants.FlightSearchRequested, searchID)
+func RandomDelay(min, max int) {
+	delay := rand.Intn(max-min+1) + min // hasil dalam detik
+	time.Sleep(time.Duration(delay) * time.Second)
 }

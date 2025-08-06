@@ -2,30 +2,31 @@ package handler
 
 import (
 	"fmt"
-	"log"
-	"main-service/models"
+
 	"net/http"
 
 	"shared/constants"
+	sharedlogger "shared/logger"
+	sharedmodels "shared/models"
 	redisClient "shared/redis"
-
-	"shared/utils"
+	"shared/tracing"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/zap"
 )
 
 func FlightSearchHandler(c *fiber.Ctx) error {
 	ctx := c.UserContext()
-	var req models.SearchRequest
+	var req sharedmodels.SearchRequest
 
 	tracer := otel.Tracer(fmt.Sprintf("%s/handler", constants.ServiceMain))
 	ctx, span := tracer.Start(ctx, "FlightSearchHandler")
 	defer span.End()
 
 	if err := c.BodyParser(&req); err != nil {
-		log.Println("Invalid request:", err)
+		sharedlogger.WithTrace(ctx).Warn("Invalid request:", zap.Error(err))
 		span.RecordError(err)
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
@@ -37,11 +38,19 @@ func FlightSearchHandler(c *fiber.Ctx) error {
 	}
 
 	searchID := uuid.New().String()
-	payload := utils.StructToMap(req)
+	payload := map[string]any{
+		"search_id":     searchID,
+		"from":          req.From,
+		"to":            req.To,
+		"date":          req.Date,
+		"passengers":    req.Passengers,
+		"trace_context": tracing.InjectTracingToMap(ctx),
+	}
+
 	err := redisClient.AddToStream(ctx, constants.FlightSearchRequested, payload)
 
 	if err != nil {
-		log.Println("Redis error:", err)
+		sharedlogger.WithTrace(ctx).Warn("Failed to add to stream:", zap.Error(err))
 		span.RecordError(err)
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,

@@ -18,9 +18,10 @@ services:
       - "8080:8080"
     depends_on:
       - redis
+      - jaeger
 
   provider-service:
     build: ./provider-service
     depends_on:
-      - redis
+      - main-service
     
