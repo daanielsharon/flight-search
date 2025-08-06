@@ -16,14 +16,14 @@ import (
 	"shared/tracing"
 	"shared/utils"
 
-	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
+	"github.com/go-redis/redis"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/zap"
 )
 
 var (
 	group    = "flight-group"
-	consumer = uuid.NewString()
+	consumer = "flight-provider"
 )
 
 func main() {
@@ -37,10 +37,11 @@ func main() {
 
 	err := redisclient.CreateStreamGroup(redisCtx, constants.FlightSearchRequested, group, "0")
 	if err != nil {
-		log.Fatalf("failed to create group: %v", err)
-		return
+		log.Println("CreateStreamGroup error:", err)
+		if !strings.Contains(err.Error(), "BUSYGROUP") {
+			log.Fatalf("failed to create group: %v", err)
+		}
 	}
-
 	log.Println("Provider service started")
 
 	for {
@@ -58,7 +59,7 @@ func main() {
 	}
 }
 
-func LoadSampleFlights() ([]models.Flight, error) {
+func loadSampleFlights() ([]models.Flight, error) {
 	data, err := os.ReadFile("sample.json")
 	if err != nil {
 		return nil, err
@@ -73,6 +74,7 @@ func LoadSampleFlights() ([]models.Flight, error) {
 
 func handleMessage(messageID string, values map[string]interface{}) {
 	traceData := values["trace_context"]
+	searchID := values["search_id"].(string)
 	ctx := tracing.ExtractTracingFromMap(context.Background(), traceData)
 
 	tracer := otel.Tracer(fmt.Sprintf("%s/handler", constants.ServiceProvider))
@@ -85,9 +87,12 @@ func handleMessage(messageID string, values map[string]interface{}) {
 		span.RecordError(err)
 		log.Printf("failed to ack message %s: %v", messageID, err)
 	}
+
+	sharedlogger.WithTrace(ctx).Info("Message acknowledged", zap.String("search_id", searchID))
+	span.AddEvent("Message acknowledged")
 }
 
-func FindMatchingFlights(all []models.Flight, req sharedmodels.SearchRequest) []models.Flight {
+func findMatchingFlights(all []models.Flight, req sharedmodels.SearchRequest) []models.Flight {
 	var results []models.Flight
 	for _, f := range all {
 		if f.From != req.From || f.To != req.To {
@@ -104,16 +109,16 @@ func FindMatchingFlights(all []models.Flight, req sharedmodels.SearchRequest) []
 	return results
 }
 
-func handleFlightRequest(ctx context.Context, values map[string]any) {
+func handleFlightRequest(baseCtx context.Context, values map[string]any) {
 	tracer := otel.Tracer(fmt.Sprintf("%s/handler", constants.ServiceProvider))
-	ctx, span := tracer.Start(ctx, "handleFlightRequest")
+	ctx, span := tracer.Start(baseCtx, "handleFlightRequest")
 	defer span.End()
 
 	searchID := values["search_id"].(string)
 	err := redisclient.AddToStream(ctx, utils.SearchResultStream(searchID), map[string]any{
 		"search_id":     searchID,
 		"status":        "processing",
-		"results":       []map[string]any{},
+		"results":       []byte("[]"),
 		"trace_context": tracing.InjectTracingToJSON(ctx),
 	})
 
@@ -123,33 +128,44 @@ func handleFlightRequest(ctx context.Context, values map[string]any) {
 		return
 	}
 
-	utils.RandomDelay(2, 7) // simulate delay
+	sharedlogger.WithTrace(ctx).Info("simulate delay started")
+	utils.RandomDelay(2, 7)
+	sharedlogger.WithTrace(ctx).Info("simulate delay ended")
 
-	req, err := utils.MapToStruct[sharedmodels.SearchRequest](values)
+	normalized := utils.NormalizeRedisValues(values)
+	req, err := utils.MapToStruct[sharedmodels.SearchRequest](normalized)
 	if err != nil {
 		log.Println("failed to decode request:", err)
 		span.RecordError(err)
 		return
 	}
 
-	flights, err := LoadSampleFlights()
+	flights, err := loadSampleFlights()
 	if err != nil {
 		span.RecordError(err)
 		log.Printf("failed to load sample flights: %v", err)
 		return
 	}
 
-	flights = FindMatchingFlights(flights, req)
+	span.AddEvent("matching flights")
+	flights = findMatchingFlights(flights, req)
+	jsonFlights, err := json.Marshal(flights)
+	if err != nil {
+		span.RecordError(err)
+		log.Printf("failed to marshal flights: %v", err)
+		return
+	}
 
 	result := map[string]any{
 		"search_id":     searchID,
 		"status":        "completed",
-		"results":       flights,
+		"results":       string(jsonFlights),
 		"trace_context": tracing.InjectTracingToJSON(ctx),
 	}
 
+	span.AddEvent("adding result to stream")
+	sharedlogger.WithTrace(ctx).Info("adding result to stream", zap.String("search_id", searchID))
 	err = redisclient.AddToStream(ctx, utils.SearchResultStream(searchID), result)
-
 	if err != nil {
 		log.Println("Redis error:", err)
 		span.RecordError(err)

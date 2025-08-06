@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"math/rand"
+	"strconv"
 	"time"
 )
 
@@ -27,6 +28,30 @@ func MapToStruct[T any](data map[string]any) (T, error) {
 	}
 
 	return result, nil
+}
+
+func NormalizeRedisValues(raw map[string]interface{}) map[string]interface{} {
+	clean := make(map[string]interface{})
+	for k, v := range raw {
+		str, ok := v.(string)
+		if !ok {
+			clean[k] = v
+			continue
+		}
+
+		var parsed any
+		if json.Unmarshal([]byte(str), &parsed) == nil {
+			clean[k] = parsed
+			continue
+		}
+
+		if n, err := strconv.Atoi(str); err == nil {
+			clean[k] = n
+			continue
+		}
+		clean[k] = str
+	}
+	return clean
 }
 
 func RandomDelay(min, max int) {
