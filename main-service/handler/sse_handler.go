@@ -91,10 +91,13 @@ func handleMessage(baseCtx context.Context, w *bufio.Writer, streamName, groupNa
 		return nil
 	}
 
-	// Auto-cleanup if completed
-	if strings.ToLower(status) == "completed" {
-		redisclient.DeleteStream(ctx, streamName)
-		return io.EOF // to break the loop and end the stream
+	totalResults, ok := data["total_results"].(string)
+	if ok {
+		// Auto-cleanup if completed
+		if strings.ToLower(status) == "completed" && totalResults != "" {
+			redisclient.DeleteStream(ctx, streamName)
+			return io.EOF // to break the loop and end the stream
+		}
 	}
 
 	return nil
