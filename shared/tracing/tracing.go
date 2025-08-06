@@ -25,7 +25,7 @@ func MustInit(serviceName string) {
 
 func Init(ctx context.Context, serviceName string) error {
 	exp, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpoint("localhost:4318"),
+		otlptracehttp.WithEndpoint("jaeger:4318"),
 		otlptracehttp.WithInsecure(),
 	)
 	if err != nil {

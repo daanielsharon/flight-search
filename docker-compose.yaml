@@ -2,26 +2,44 @@ version: '3.8'
 
 services:
   redis:
-    image: redis:7
+    image: redis:latest
     ports:
       - "6379:6379"
+    networks:
+      - app-network
 
   jaeger:
     image: jaegertracing/all-in-one:1.54
     ports:
       - "16686:16686"   # Jaeger UI
       - "4318:4318"     # OTLP HTTP receiver
+    networks:
+      - app-network
 
   main-service:
-    build: ./main-service
+    build:
+      context: .
+      dockerfile: main-service/Dockerfile
     ports:
       - "8080:8080"
     depends_on:
       - redis
       - jaeger
+    restart: always
+    networks:
+      - app-network
 
   provider-service:
-    build: ./provider-service
+    build:
+      context: .
+      dockerfile: provider-service/Dockerfile
     depends_on:
       - main-service
-    
+      - redis
+    restart: always
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
