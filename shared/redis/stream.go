@@ -29,8 +29,8 @@ func ReadFromGroup(
 		Group:    groupName,
 		Consumer: consumerID,
 		Streams:  []string{streamName, ">"},
-		Block:    5 * time.Second,
-		Count:    10,
+		Block:    1 * time.Second,
+		Count:    1,
 	}).Result()
 }
 

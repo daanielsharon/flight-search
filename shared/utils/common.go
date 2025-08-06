@@ -30,8 +30,8 @@ func MapToStruct[T any](data map[string]any) (T, error) {
 	return result, nil
 }
 
-func NormalizeRedisValues(raw map[string]interface{}) map[string]interface{} {
-	clean := make(map[string]interface{})
+func NormalizeRedisValues(raw map[string]any) map[string]any {
+	clean := make(map[string]any)
 	for k, v := range raw {
 		str, ok := v.(string)
 		if !ok {

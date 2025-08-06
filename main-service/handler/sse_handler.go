@@ -13,6 +13,7 @@ import (
 	redisclient "shared/redis"
 	"shared/utils"
 	"strings"
+	"time"
 
 	"shared/constants"
 	"shared/tracing"
@@ -24,6 +25,22 @@ import (
 )
 
 func startStreamWriter(ctx context.Context, w *bufio.Writer, streamName, groupName, consumerID string) {
+	// Workaround: periodic ping to flush due to fasthttp buffering (Fiber limitation for SSE)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				w.WriteString(": ping\n\n")
+				w.Flush()
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -62,6 +79,8 @@ func handleMessage(baseCtx context.Context, w *bufio.Writer, streamName, groupNa
 	data := make(map[string]any)
 	maps.Copy(data, msg.Values)
 
+	delete(data, "trace_context")
+
 	span.AddEvent(fmt.Sprintf("Processing message %s", searchID))
 	sharedlogger.WithTrace(ctx).Info("Processing message", zap.String("search_id", searchID))
 
@@ -72,12 +91,19 @@ func handleMessage(baseCtx context.Context, w *bufio.Writer, streamName, groupNa
 		return err
 	}
 
-	fmt.Fprintf(w, "data: %s\n\n", jsonData)
-	if err := w.Flush(); err != nil {
-		sharedlogger.WithTrace(ctx).Warn("Failed to flush writer:", zap.Error(err))
-		span.RecordError(err)
+	line := fmt.Sprintf("data: %s\n\n", jsonData)
+	_, err = w.WriteString(line)
+	if err != nil {
 		return err
 	}
+
+	err = w.Flush()
+	if err != nil {
+		return err
+	}
+
+	span.AddEvent("Message sent")
+	sharedlogger.WithTrace(ctx).Info("Message sent", zap.String("search_id", searchID))
 
 	if err := redisclient.AcknowledgeMessage(ctx, streamName, groupName, msg.ID); err != nil {
 		sharedlogger.WithTrace(ctx).Warn("Ack error:", zap.Error(err))

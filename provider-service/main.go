@@ -129,7 +129,7 @@ func handleFlightRequest(baseCtx context.Context, values map[string]any) {
 	}
 
 	sharedlogger.WithTrace(ctx).Info("simulate delay started")
-	utils.RandomDelay(2, 7)
+	utils.RandomDelay(7, 10)
 	sharedlogger.WithTrace(ctx).Info("simulate delay ended")
 
 	normalized := utils.NormalizeRedisValues(values)
@@ -165,6 +165,7 @@ func handleFlightRequest(baseCtx context.Context, values map[string]any) {
 
 	span.AddEvent("adding result to stream")
 	sharedlogger.WithTrace(ctx).Info("adding result to stream", zap.String("search_id", searchID))
+	utils.RandomDelay(7, 10)
 	err = redisclient.AddToStream(ctx, utils.SearchResultStream(searchID), result)
 	if err != nil {
 		log.Println("Redis error:", err)
