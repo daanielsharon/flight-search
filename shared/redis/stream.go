@@ -2,6 +2,8 @@ package redisclient
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -42,4 +44,16 @@ func DeleteStream(ctx context.Context, streamName string) error {
 
 func CreateStreamGroup(ctx context.Context, streamName string, groupName string, id string) error {
 	return Client.XGroupCreateMkStream(ctx, streamName, groupName, id).Err()
+}
+
+func CheckStreamExists(ctx context.Context, stream string) (bool, error) {
+	info, err := Client.XInfoStream(ctx, stream).Result()
+	if err != nil {
+		fmt.Println("error", err)
+		if strings.Contains(err.Error(), "no such key") {
+			return false, nil
+		}
+		return false, err
+	}
+	return info.Length > 0, nil
 }

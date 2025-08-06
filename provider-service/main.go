@@ -36,8 +36,9 @@ func main() {
 	redisCtx := context.Background()
 
 	err := redisclient.CreateStreamGroup(redisCtx, constants.FlightSearchRequested, group, "0")
-	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+	if err != nil {
 		log.Fatalf("failed to create group: %v", err)
+		return
 	}
 
 	log.Println("Provider service started")
@@ -113,7 +114,7 @@ func handleFlightRequest(ctx context.Context, values map[string]any) {
 		"search_id":     searchID,
 		"status":        "processing",
 		"results":       []map[string]any{},
-		"trace_context": tracing.InjectTracingToMap(ctx),
+		"trace_context": tracing.InjectTracingToJSON(ctx),
 	})
 
 	if err != nil {
@@ -144,7 +145,7 @@ func handleFlightRequest(ctx context.Context, values map[string]any) {
 		"search_id":     searchID,
 		"status":        "completed",
 		"results":       flights,
-		"trace_context": tracing.InjectTracingToMap(ctx),
+		"trace_context": tracing.InjectTracingToJSON(ctx),
 	}
 
 	err = redisclient.AddToStream(ctx, utils.SearchResultStream(searchID), result)
@@ -158,7 +159,7 @@ func handleFlightRequest(ctx context.Context, values map[string]any) {
 		"search_id":     searchID,
 		"status":        "completed",
 		"total_results": len(flights),
-		"trace_context": tracing.InjectTracingToMap(ctx),
+		"trace_context": tracing.InjectTracingToJSON(ctx),
 	})
 
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/contrib/otelfiber"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/logger"
 
 	"shared/constants"
 	sharedlogger "shared/logger"
@@ -23,6 +24,7 @@ func main() {
 
 	app := fiber.New()
 	app.Use(otelfiber.Middleware())
+	app.Use(logger.New())
 
 	app.Route("/search", func(router fiber.Router) {
 		router.Post("/", handler.FlightSearchHandler)

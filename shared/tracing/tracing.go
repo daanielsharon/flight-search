@@ -2,6 +2,7 @@ package tracing
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"time"
 
@@ -59,10 +60,17 @@ func Shutdown() {
 	}
 }
 
-func InjectTracingToMap(ctx context.Context) map[string]string {
+func InjectTracingToJSON(ctx context.Context) string {
 	carrier := propagation.MapCarrier{}
 	otel.GetTextMapPropagator().Inject(ctx, carrier)
-	return carrier
+
+	// Serialize to JSON string
+	data, err := json.Marshal(carrier)
+	if err != nil {
+		// fallback kosongin aja biar Redis nggak error
+		return "{}"
+	}
+	return string(data)
 }
 
 func ExtractTracingFromMap(ctx context.Context, carrierMap any) context.Context {

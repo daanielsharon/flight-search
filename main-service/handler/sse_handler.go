@@ -113,6 +113,27 @@ func SSEHandler(c *fiber.Ctx) error {
 		})
 	}
 
+	exists, err := redisclient.CheckStreamExists(c.Context(), utils.SearchResultStream(searchID))
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Redis error",
+			"data": fiber.Map{
+				"error": err.Error(),
+			},
+		})
+	}
+
+	if !exists {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Stream not found",
+			"data": fiber.Map{
+				"error": "Stream not found",
+			},
+		})
+	}
+
 	streamName := utils.SearchResultStream(searchID)
 	groupName := "group"
 	consumerID := fmt.Sprintf("search-%s", searchID)

@@ -44,7 +44,7 @@ func FlightSearchHandler(c *fiber.Ctx) error {
 		"to":            req.To,
 		"date":          req.Date,
 		"passengers":    req.Passengers,
-		"trace_context": tracing.InjectTracingToMap(ctx),
+		"trace_context": tracing.InjectTracingToJSON(ctx),
 	}
 
 	err := redisClient.AddToStream(ctx, constants.FlightSearchRequested, payload)
